@@ -4,7 +4,7 @@
 package systray
 
 /*
-#cgo linux pkg-config: ayatana-appindicator-0.1
+#cgo linux pkg-config: ayatana-appindicator3-0.1
 
 #include "systray.h"
 */
