@@ -32,6 +32,12 @@ typedef struct {
 	short isCheckable;
 } MenuItemInfo;
 
+typedef struct {
+	int   id;
+	GBytes* data;
+	int length;
+} MenuItemImageInfo;
+
 void registerSystray(void) {
 	gtk_init(0, NULL);
 	global_app_indicator = app_indicator_new("systray", "", APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
@@ -57,9 +63,9 @@ void _unlink_temp_file() {
 	}
 }
 
-// runs in main thread, should always return FALSE to prevent gtk to execute it again
-gboolean do_set_icon(gpointer data) {
+gboolean _dump_temp_file(GBytes* bytes) {
 	_unlink_temp_file();
+
 	char *tmpdir = getenv("TMPDIR");
 	if (NULL == tmpdir) {
 		tmpdir = "/tmp";
@@ -68,7 +74,6 @@ gboolean do_set_icon(gpointer data) {
 	strncat(temp_file_name, "/systray_XXXXXX", PATH_MAX-1);
 	temp_file_name[PATH_MAX-1] = '\0';
 
-	GBytes* bytes = (GBytes*)data;
 	int fd = mkstemp(temp_file_name);
 	if (fd == -1) {
 		printf("failed to create temp icon file %s: %s\n", temp_file_name, strerror(errno));
@@ -82,6 +87,15 @@ gboolean do_set_icon(gpointer data) {
 		printf("failed to write temp icon file %s: %s\n", temp_file_name, strerror(errno));
 		return FALSE;
 	}
+	return TRUE;
+}
+
+// runs in main thread, should always return FALSE to prevent gtk to execute it again
+gboolean do_set_icon(gpointer data) {
+	GBytes* bytes = (GBytes*)data;
+	if( _dump_temp_file(bytes) != TRUE )
+		return FALSE;
+
 	app_indicator_set_icon_full(global_app_indicator, temp_file_name, "");
 	app_indicator_set_attention_icon_full(global_app_indicator, temp_file_name, "");
 	g_bytes_unref(bytes);
@@ -101,6 +115,32 @@ GtkMenuItem* find_menu_by_id(int id) {
 		}
 	}
 	return NULL;
+}
+
+// runs in main thread, should always return FALSE to prevent gtk to execute it again
+gboolean do_menu_item_set_icon(gpointer data) {
+	MenuItemImageInfo *info = (MenuItemImageInfo*)data;
+	if( info == NULL )
+		return FALSE;
+
+	GtkImageMenuItem* item = (GtkImageMenuItem*)find_menu_by_id(info->id);
+	if ( item != NULL ) {
+		// temp image
+		GBytes* bytes = (GBytes*)info->data;
+		if( _dump_temp_file(bytes) != TRUE )
+			return FALSE;
+
+		// set widget
+		gtk_image_menu_item_set_always_show_image(item, TRUE);
+
+		GtkWidget* image = gtk_image_new_from_file(temp_file_name);
+
+		gtk_image_menu_item_set_image(item, image);
+	}
+
+	g_bytes_unref(info->data);
+	free(info);
+	return FALSE;
 }
 
 // runs in main thread, should always return FALSE to prevent gtk to execute it again
@@ -130,7 +170,7 @@ gboolean do_add_or_update_menu_item(gpointer data) {
 			menu_item = gtk_check_menu_item_new_with_label(mii->title);
 			gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(menu_item), mii->checked == 1);
 		} else {
-			menu_item = gtk_menu_item_new_with_label(mii->title);
+			menu_item = gtk_image_menu_item_new_with_label(mii->title);
 		}
 		int *id = malloc(sizeof(int));
 		*id = mii->menu_id;
@@ -238,6 +278,13 @@ void setTooltip(char* ctooltip) {
 }
 
 void setMenuItemIcon(const char* iconBytes, int length, int menuId, bool template) {
+	GBytes* bytes = g_bytes_new_static(iconBytes, length);
+	MenuItemImageInfo *info = malloc(sizeof(MenuItemImageInfo));
+	info->id = menuId;
+	info->data = bytes;
+	info->length = length;
+
+	g_idle_add(do_menu_item_set_icon, info);
 }
 
 void add_or_update_menu_item(int menu_id, int parent_menu_id, char* title, char* tooltip, short disabled, short checked, short isCheckable) {

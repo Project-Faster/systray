@@ -1,5 +1,12 @@
 package systray
 
+// #include "systray.h"
+import "C"
+
+import (
+	"unsafe"
+)
+
 // SetTemplateIcon sets the systray icon as a template icon (on macOS), falling back
 // to a regular icon on other platforms.
 // templateIconBytes and iconBytes should be the content of .ico for windows and
@@ -16,6 +23,8 @@ func SetRemovalAllowed(allowed bool) {
 // SetIcon sets the icon of a menu item. Only works on macOS and Windows.
 // iconBytes should be the content of .ico/.jpg/.png
 func (item *MenuItem) SetIcon(iconBytes []byte) {
+	cstr := (*C.char)(unsafe.Pointer(&iconBytes[0]))
+	C.setMenuItemIcon(cstr, (C.int)(len(iconBytes)), (C.int)(item.id), false)
 }
 
 // SetTemplateIcon sets the icon of a menu item as a template icon (on macOS). On Windows, it
